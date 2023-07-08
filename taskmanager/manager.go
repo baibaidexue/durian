@@ -2,6 +2,7 @@ package taskmanager
 
 import (
 	"fmt"
+	"sync"
 
 	"durian/comic"
 	"durian/pic"
@@ -17,6 +18,11 @@ type TaskManager struct {
 }
 
 func NewTaskManager(db *gorm.DB, savePath string) *TaskManager {
+	var countLocker sync.Mutex
+	var onAir int
+	var total int
+	var worked int
+
 	picChan := make(chan string, 3)
 	go func() {
 		for {
@@ -24,6 +30,11 @@ func NewTaskManager(db *gorm.DB, savePath string) *TaskManager {
 			case v := <-picChan:
 				pic.Download(v, savePath)
 				// time.Sleep(3 * time.Second)
+				countLocker.Lock()
+				onAir--
+				worked++
+				fmt.Printf("--> onAir:%d\tfinished:%d\ttotal:%d\n", onAir, worked, total)
+				countLocker.Unlock()
 			}
 		}
 	}()
@@ -33,26 +44,43 @@ func NewTaskManager(db *gorm.DB, savePath string) *TaskManager {
 			select {
 			case v := <-comicChan:
 				comic.Download(v, savePath)
+				countLocker.Lock()
+				onAir--
+				worked++
+				fmt.Printf("--> onAir:%d\tfinished:%d\ttotal:%d\n", onAir, worked, total)
+				countLocker.Unlock()
 				// time.Sleep(3 * time.Second)
 			}
 		}
 	}()
 	TaskChan := make(chan string, 10)
+
 	go func() {
 		for {
 			select {
 			case v := <-TaskChan:
 				fmt.Println("Task recved:", v)
+				var legal bool
 				if pic.IsCorrectUrl(v) {
 					go func() {
 						picChan <- v
 					}()
+					legal = true
 				} else if comic.IsCorrectUrl(v) {
 					go func() {
 						comicChan <- v
 					}()
+					legal = true
 				} else {
 					fmt.Println("Task garbage:", v)
+				}
+
+				if legal {
+					countLocker.Lock()
+					onAir++
+					total++
+					fmt.Printf("--> onAir:%d\n", onAir)
+					countLocker.Unlock()
 				}
 
 			}

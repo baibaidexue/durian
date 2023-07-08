@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"durian/helpers"
 )
@@ -34,6 +35,7 @@ func WebGet(method, uri string) (error, []byte) {
 	// 创建Client对象，并设置Transport
 	client := &http.Client{
 		Transport: transport,
+		Timeout:   12 * time.Second,
 	}
 
 	// 构造HTTP请求
@@ -61,6 +63,13 @@ func WebGet(method, uri string) (error, []byte) {
 func WriteFile(method, targetURL, savePath string) (error, string, int64) {
 	sp := strings.Split(targetURL, "/")
 	fileName := sp[len(sp)-1]
+	if strings.Contains(fileName, "?") {
+		spa := strings.Split(fileName, "?")
+		fileName = spa[0]
+	}
+	if filepath.Ext(fileName) == "" {
+		fileName = fileName + ".jpg"
+	}
 	dira := filepath.Join(savePath, fileName)
 	if helpers.FileExists(dira) {
 		return fmt.Errorf("File already exists."), "", 0

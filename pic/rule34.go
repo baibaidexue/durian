@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	GelbooruURLBase = "https://gelbooru.com/"
+	Rule34URLBase = "https://rule34.xxx/"
 )
 
-func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error {
+func Rule34DownloadPics(requestURL string, savePath string, db *gorm.DB) error {
 	err, body := webbody.WebGet("GET", requestURL)
 	if err != nil {
 		fmt.Println(err)
@@ -31,11 +31,12 @@ func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error
 		return err
 	}
 
-	tag := GelbooruTagFind(doc)
-	// fmt.Printf("%+v\n", tag)
+	tag := Rule34TagFind(doc)
 
-	imageURL := GelbooruImageUrlFind(doc)
-	imageURL = GelbooruImageUrlOrigin(imageURL)
+	imageURL := Rule34ImageUrlFind(doc)
+	imageURL = Rule34ImageUrlOrigin(imageURL)
+	// fmt.Println("Rule34 meta show:")
+	// fmt.Printf("%+v\n", tag)
 	// fmt.Println("ImageURL:", imageURL)
 	if imageURL == "" {
 		return errors.New("Imageurl not found.")
@@ -57,60 +58,37 @@ func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error
 		FilePath:   s,
 		FileName:   filepath.Base(s),
 		Size:       uint64(i),
-		Artist:     Taginfo2DBArtist(tag.Artist),
-		Tags:       Taginfo2DBTag(tag.General),
-		Character:  Taginfo2DBCharacter(tag.Character),
-		Metadata:   Taginfo2DBMetaData(tag.MetaData),
-		CopyRight:  Taginfo2DBCopyRight(tag.CopyRight),
+
+		Artist:    Taginfo2DBArtist(tag.Artist),
+		Tags:      Taginfo2DBTag(tag.General),
+		Character: Taginfo2DBCharacter(tag.Character),
+		Metadata:  Taginfo2DBMetaData(tag.MetaData),
+		CopyRight: Taginfo2DBCopyRight(tag.CopyRight),
 	}
 
 	// fmt.Printf("%+v\n", this)
 	db.Save(&this)
-
 	return nil
 }
 
-func GelbooruImageUrlOrigin(current string) string {
-	temp := strings.ReplaceAll(current, "sample_", "")
-	return strings.ReplaceAll(temp, "samples", "images")
+func Rule34ImageUrlOrigin(current string) string {
+	return current
 }
 
-func GelbooruImageUrlFind(doc *goquery.Document) (imageURL string) {
-	doc.Find(".aside").Each(func(i int, s *goquery.Selection) {
-		// fmt.Printf("Aside: %+v\n", s)
-		li := s.Find("a")
-		for _, v := range li.Nodes {
-
-			// fmt.Println("_______________")
-			// fmt.Printf("Aside a nodes: %+v\n", d)
-			valNo := v.FirstChild
-			if valNo != nil {
-				if valNo.Data == "Original image" {
-					for _, at := range v.Attr {
-						if at.Key == "href" {
-							imageURL = at.Val
-							return
-						}
-						// fmt.Println(at.Key, ":", at.Val)
-					}
-				}
-			}
-			// fmt.Println("_______________")
-		}
-	})
-
-	if imageURL != "" {
-		return
-	}
-
-	selection := doc.Find("picture")
+func Rule34ImageUrlFind(doc *goquery.Document) (imageURL string) {
+	selection := doc.Find("#image")
 	for _, node := range selection.Nodes {
-		// fmt.Printf("node: %+v\n", node)
+
+		val, exist := selection.Attr("src")
+		if exist {
+			return val
+		}
+		fmt.Printf("node: %+v\n", node)
 		var depth int
 		var imgNodes []*html.Node
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
 			func(n *html.Node, depth int) {
-				// fmt.Printf("child n: %+v\n", n)
+				fmt.Printf("child n: %+v\n", n)
 				if n.Data == "img" {
 					imgNodes = append(imgNodes, n)
 				}
@@ -131,8 +109,9 @@ func GelbooruImageUrlFind(doc *goquery.Document) (imageURL string) {
 	return
 }
 
-func GelbooruTagFind(doc *goquery.Document) (geltag TagMulti) {
-	doc.Find(".tag-list").Each(func(i int, selection *goquery.Selection) {
+func Rule34TagFind(doc *goquery.Document) (geltag TagMulti) {
+	doc.Find("#tag-sidebar").Each(func(i int, selection *goquery.Selection) {
+		// fmt.Printf("%+v\n", selection)
 		for _, node := range selection.Nodes {
 			var depth int
 
@@ -149,13 +128,13 @@ func GelbooruTagFind(doc *goquery.Document) (geltag TagMulti) {
 						}
 					}
 					switch nodeType {
-					case "tag-type-artist":
+					case "tag-type-artist tag":
 						fallthrough
-					case "tag-type-character":
+					case "tag-type-character tag":
 						fallthrough
-					case "tag-type-metadata":
+					case "tag-type-copyright tag":
 						fallthrough
-					case "tag-type-general":
+					case "tag-type-general tag":
 						tagNodes = append(tagNodes, struct {
 							Class string
 							Node  *html.Node
@@ -188,10 +167,13 @@ func GelbooruTagFind(doc *goquery.Document) (geltag TagMulti) {
 				if val == "" || link == "" {
 					continue
 				}
-				// link = GelbooruURLBase + link
-				link, _ = url.JoinPath(GelbooruURLBase, link)
+				link, _ = url.JoinPath(YandeURLBase, link)
+				// if err != nil {
+				// 	return
+				// }
+				// link = YandeURLBase + link
 				switch v.Class {
-				case "tag-type-artist":
+				case "tag-type-artist tag":
 					si := strings.Split(val, "=")
 					geltag.Artist = append(geltag.Artist, TagInfo{
 						Name:       val,
@@ -199,14 +181,15 @@ func GelbooruTagFind(doc *goquery.Document) (geltag TagMulti) {
 						Href:       link,
 					})
 
-				case "tag-type-character":
+				case "tag-type-character tag":
 					si := strings.Split(val, "=")
 					geltag.Character = append(geltag.Character, TagInfo{
 						Name:       val,
 						SearchName: si[len(si)-1],
 						Href:       link,
 					})
-				case "tag-type-copyright":
+
+				case "tag-type-copyright tag":
 					si := strings.Split(val, "=")
 					geltag.CopyRight = append(geltag.CopyRight, TagInfo{
 						Name:       val,
@@ -214,15 +197,7 @@ func GelbooruTagFind(doc *goquery.Document) (geltag TagMulti) {
 						Href:       link,
 					})
 
-				case "tag-type-metadata":
-					si := strings.Split(val, "=")
-					geltag.MetaData = append(geltag.MetaData, TagInfo{
-						Name:       val,
-						SearchName: si[len(si)-1],
-						Href:       link,
-					})
-
-				case "tag-type-general":
+				case "tag-type-general tag":
 					si := strings.Split(val, "=")
 					geltag.General = append(geltag.General, TagInfo{
 						Name:       val,

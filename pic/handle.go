@@ -86,12 +86,14 @@ func IsCorrectUrl(requestUrl string) bool {
 		ret = true
 	case "yande.re":
 		ret = true
+	case "rule34.xxx":
+		ret = true
 	}
 	return ret
 }
 
 func Download(requestUrl string, savePath string) {
-	fmt.Println("Download pic:", requestUrl)
+	// fmt.Println("Download pic:", requestUrl)
 	spi := strings.Split(requestUrl, "://")
 	requestBody := spi[1]
 	rq := strings.Split(requestBody, "/")
@@ -110,6 +112,12 @@ func Download(requestUrl string, savePath string) {
 		} else {
 			err = fmt.Errorf("Not a yande.re image page:%s\n", requestUrl)
 		}
+	case "rule34.xxx":
+		if strings.Contains(requestBody, "id=") {
+			err = Rule34DownloadPics(requestUrl, savePath, dao.Object)
+		} else {
+			err = fmt.Errorf("Not a rule34 image page:%s\n", requestUrl)
+		}
 	default:
 		err = errors.New("no branch caughted:" + rq[0])
 	}
@@ -117,7 +125,7 @@ func Download(requestUrl string, savePath string) {
 	if err != nil {
 		fmt.Println("Encounter error at downloading pics:", err)
 	} else {
-		fmt.Println("finshied ", requestUrl)
+		// fmt.Println("finshied ", requestUrl)
 	}
 
 }

@@ -55,6 +55,7 @@ func clipboardListening(manager *taskmanager.TaskManager) {
 	}
 	ch := clib.Watch(context.TODO(), clib.FmtText)
 	var curr, prev string
+	fmt.Println("Watching on...")
 	for data := range ch {
 		curr = string(data)
 		// 如果发现剪贴板内容发生变化，则将其写入文件
