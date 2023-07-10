@@ -31,6 +31,11 @@ func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error
 		return err
 	}
 
+	// 检测是否是展示页面
+	if sec := doc.Find("container"); sec != nil {
+
+	}
+
 	tag := GelbooruTagFind(doc)
 	// fmt.Printf("%+v\n", tag)
 

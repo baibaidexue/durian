@@ -15,87 +15,98 @@ type TaskManager struct {
 	TaskChan  chan string
 	picChan   chan string
 	comicChan chan string
+
+	countLocker sync.Mutex
+	onAir       int
+	total       int
+	worked      int
+}
+
+func (t *TaskManager) addCount() {
+	t.countLocker.Lock()
+	defer t.countLocker.Unlock()
+
+	t.onAir++
+	t.total++
+	fmt.Printf("--> onAir:%d\n", t.onAir)
+
+}
+
+func (t *TaskManager) delCount() {
+	t.countLocker.Lock()
+	defer t.countLocker.Unlock()
+	
+	t.onAir--
+	t.worked++
+	fmt.Printf("--> onAir:%d\tfinished:%d\ttotal:%d\n", t.onAir, t.worked, t.total)
+
+}
+
+func comicRun(tm *TaskManager) {
+	for {
+		select {
+		case v := <-tm.comicChan:
+			comic.Download(v, tm.SavePath)
+			// time.Sleep(3 * time.Second)
+			tm.delCount()
+		}
+	}
+}
+
+func picRun(tm *TaskManager) {
+	for {
+		select {
+		case v := <-tm.picChan:
+			pic.Download(v, tm.SavePath)
+			// time.Sleep(3 * time.Second)
+			tm.delCount()
+		}
+	}
+}
+
+func span(tm *TaskManager) {
+	for {
+		select {
+		case v := <-tm.TaskChan:
+			fmt.Println("Task recved:", v)
+			var legal bool
+			if pic.IsCorrectUrl(v) {
+				go func() {
+					tm.picChan <- v
+				}()
+				legal = true
+			} else if comic.IsCorrectUrl(v) {
+				go func() {
+					tm.comicChan <- v
+				}()
+				legal = true
+			} else {
+				fmt.Println("Task garbage:", v)
+			}
+
+			if legal {
+				tm.addCount()
+			}
+
+		}
+	}
 }
 
 func NewTaskManager(db *gorm.DB, savePath string) *TaskManager {
-	var countLocker sync.Mutex
-	var onAir int
-	var total int
-	var worked int
-
-	picChan := make(chan string, 3)
-	go func() {
-		for {
-			select {
-			case v := <-picChan:
-				pic.Download(v, savePath)
-				// time.Sleep(3 * time.Second)
-				countLocker.Lock()
-				onAir--
-				worked++
-				fmt.Printf("--> onAir:%d\tfinished:%d\ttotal:%d\n", onAir, worked, total)
-				countLocker.Unlock()
-			}
-		}
-	}()
-	comicChan := make(chan string, 3)
-	go func() {
-		for {
-			select {
-			case v := <-comicChan:
-				comic.Download(v, savePath)
-				countLocker.Lock()
-				onAir--
-				worked++
-				fmt.Printf("--> onAir:%d\tfinished:%d\ttotal:%d\n", onAir, worked, total)
-				countLocker.Unlock()
-				// time.Sleep(3 * time.Second)
-			}
-		}
-	}()
-	TaskChan := make(chan string, 10)
-
-	go func() {
-		for {
-			select {
-			case v := <-TaskChan:
-				fmt.Println("Task recved:", v)
-				var legal bool
-				if pic.IsCorrectUrl(v) {
-					go func() {
-						picChan <- v
-					}()
-					legal = true
-				} else if comic.IsCorrectUrl(v) {
-					go func() {
-						comicChan <- v
-					}()
-					legal = true
-				} else {
-					fmt.Println("Task garbage:", v)
-				}
-
-				if legal {
-					countLocker.Lock()
-					onAir++
-					total++
-					fmt.Printf("--> onAir:%d\n", onAir)
-					countLocker.Unlock()
-				}
-
-			}
-		}
-
-	}()
-
-	return &TaskManager{
+	tm := &TaskManager{
 		Db:        db,
 		SavePath:  savePath,
-		TaskChan:  TaskChan,
-		picChan:   picChan,
-		comicChan: comicChan,
+		TaskChan:  make(chan string, 10),
+		picChan:   make(chan string, 3),
+		comicChan: make(chan string, 3),
 	}
 
+	go picRun(tm)
+	go comicRun(tm)
+
+	go span(tm)
+
+	return tm
 }
 
 func (t *TaskManager) AddTask(requestUrl string) {

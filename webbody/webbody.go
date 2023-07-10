@@ -35,7 +35,7 @@ func WebGet(method, uri string) (error, []byte) {
 	// 创建Client对象，并设置Transport
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   12 * time.Second,
+		Timeout:   8 * time.Second,
 	}
 
 	// 构造HTTP请求
