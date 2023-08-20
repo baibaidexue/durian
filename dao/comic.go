@@ -12,7 +12,7 @@ type ComicMeta struct {
 	OriginURL string `gorm:"column:origin_url"`
 	JMID      string `gorm:"column:jm_id"`
 
-	Name         string    `gorm:"unique_index:unique_idx_picture_url;column:name"`
+	Name         string    `gorm:"unique_index:unique_idx_comic_name_url;column:name"`
 	Overview     string    `gorm:"column:overview"`
 	PageCount    int       `gorm:"column:page_total"`
 	JMViewCount  int       `gorm:"column:jm_viewcount"`

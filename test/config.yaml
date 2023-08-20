@@ -1,4 +1,3 @@
 proxyurl: "http://localhost:10808"
 downloaddir: "cache/downloads"
 databasedir: "cache/database"
-comicdir: "cache/comic"

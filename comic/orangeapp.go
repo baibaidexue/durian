@@ -2,11 +2,17 @@ package comic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"durian/dao"
+	"durian/helpers"
 	"durian/webbody"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/cdproto/emulation"
@@ -84,16 +90,20 @@ func nodeContainClass(node *html.Node, className string) bool {
 	return false
 }
 
-func nodeHasAttr(node *html.Node, attr string) bool {
+func nodeHasAttr(node *html.Node, attr string) (bool, string) {
 	for _, v := range node.Attr {
 		if v.Key == attr {
-			return true
+			return true, v.Val
 		}
 	}
-	return false
+	return false, ""
 }
 
 func whatMetaNode(node *html.Node) string {
+	if nodeContainClass(node, "p-t-5 p-b-5 read-block") {
+		return "read-block"
+	}
+
 	var count int
 	for node := node.FirstChild; node != nil; node = node.NextSibling {
 		count++
@@ -104,28 +114,121 @@ func whatMetaNode(node *html.Node) string {
 		return "tag-block"
 	}
 
-	if nodeContainClass(node, "p-t-5 p-b-5 read-block") {
-		return "read-block"
-	}
 	return "unhandled"
 }
 
-func OrangeAppMetaFind(doc *goquery.Document) {
-	panel := doc.Find(".col-lg-7")
-	fmt.Println("panel nodes:", len(panel.Nodes))
+func orangeAppCrackName(p *goquery.Selection) (bookname string) {
+	head := p.Find(".panel-heading")
+
+	for _, b := range head.Nodes {
+		for node := b.FirstChild; node != nil; node = node.NextSibling {
+			if ok, val := nodeHasAttr(node, "itemprop"); ok {
+				// fmt.Println("panel heading child alike book name node val:", val)
+				if val == "name" {
+					// fmt.Println("Val name checking")
+					for nodeI := node.FirstChild; nodeI != nil; nodeI = nodeI.NextSibling {
+						if nodeI.Data == "h1" {
+							// fmt.Println("h1 finded")
+							// fmt.Printf("h1 node:\n%+v\n", nodeI)
+							for d := nodeI.FirstChild; d != nil; d = d.NextSibling {
+								// fmt.Printf("h1 child nodes:\n%+v\n", d)
+								bookname = d.Data
+							}
+						}
+
+					}
+				}
+
+			}
+		}
+
+	}
+	return
+}
+
+func OrangeAppCrach(doc *goquery.Document) (meta *dao.ComicMeta, err error) {
+	meta = &dao.ComicMeta{}
+	panel := doc.Find(".col-md-12")
+	if len(panel.Nodes) == 0 {
+		return nil, errors.New("Nothing found with comic url with first col md 12")
+	}
+
+	// name
+	bookName := orangeAppCrackName(panel)
+	meta.Name = bookName
+
+	// poster image
+	postserUrl := comicPosterFind(panel)
+	meta.PosterURL = postserUrl.PosterUrl
+	if meta.PosterURL == "" {
+		return nil, errors.New("Nothing found with comic url on poster")
+	}
+
+	// tag & download & other info
+	OrangeAppMetaFind(panel, meta)
+
+	return meta, nil
+}
+
+func dealReadBlock(b *html.Node, meta *dao.ComicMeta) {
+	for node := b.FirstChild; node != nil; node = node.NextSibling {
+		if ok, val := nodeHasAttr(node, "style"); ok {
+			if val == "padding: 5px;" {
+				if ok, href := nodeHasAttr(node, "href"); ok {
+					pa, _ := url.JoinPath(OrangeAppCCURLBase, href)
+					meta.Ep = append(meta.Ep, dao.ComicEPInfo{
+						DownloadUrl: pa,
+						FilePath:    "",
+						FileName:    "单本",
+						Size:        0,
+						Healthy:     0,
+					})
+
+				}
+			}
+			continue
+		}
+		if nodeContainClass(node, "btn-group") {
+			for n := node.FirstChild; n != nil; n = n.NextSibling {
+				if nodeContainClass(n, "dropdown-menu") {
+					for li := n.FirstChild; li != nil; li = li.NextSibling {
+						for lic := li.FirstChild; lic != nil; lic = lic.NextSibling {
+							for licd := lic.FirstChild; licd != nil; licd = licd.NextSibling {
+								_, href := nodeHasAttr(lic, "href")
+								if href == "" {
+									continue
+								}
+								downLink, _ := url.JoinPath(OrangeAppCCURLBase, href)
+								name := strings.Trim(licd.Data, "\n")
+								meta.Ep = append(meta.Ep, dao.ComicEPInfo{
+									DownloadUrl: downLink,
+									FilePath:    "",
+									FileName:    name,
+									Size:        0,
+									Healthy:     0,
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func OrangeAppMetaFind(p *goquery.Selection, meta *dao.ComicMeta) {
+	panel := p.Find(".col-lg-7")
 
 	for _, b := range panel.Nodes {
 		for node := b.FirstChild; node != nil; node = node.NextSibling {
 
 			switch whatMetaNode(node) {
 			case "tag-block":
-				fmt.Println("tag block:")
-				if nodeContainClass(node, "") {
-					fmt.Printf(" %+v\n", node)
-				}
-				dealTagInfo(node)
+
+				dealTagInfo(node, meta)
 
 			case "read-block":
+				dealReadBlock(node, meta)
 			}
 
 		}
@@ -133,19 +236,160 @@ func OrangeAppMetaFind(doc *goquery.Document) {
 
 }
 
-func dealTagInfo(b *html.Node) {
+type tagInfo struct {
+	Name string
+	Link string
+}
+
+func tagInfoInnerGet(in *html.Node) (da []tagInfo) {
+	for d := in.FirstChild; d != nil; d = d.NextSibling {
+		var href, val string
+		if ok, v := nodeHasAttr(d, "href"); ok {
+			href = v
+		}
+
+		if d.Data == "a" {
+			valnode := d.FirstChild
+			if valnode == nil {
+				fmt.Println("a had a nil node")
+			} else {
+				val = valnode.Data
+			}
+		}
+		if val != "" {
+			da = append(da, tagInfo{Name: val, Link: href})
+		}
+	}
+	return
+}
+
+func formatTime(dateStr string) time.Time {
+
+	layout := "2006-01-02" // 指定日期字符串的格式
+	t, _ := time.Parse(layout, dateStr)
+	return t
+}
+
+func dealTagInfo(b *html.Node, meta *dao.ComicMeta) {
 	for node := b.FirstChild; node != nil; node = node.NextSibling {
 		if nodeContainClass(node, "p-t-5 p-b-5") {
 			if node.Type == html.TextNode {
 				fmt.Printf("text node: %+v\n", node)
-
 			}
 			if node.Type == html.ElementNode {
-				fmt.Printf("element node: %+v\n", node)
+				// fmt.Printf("element node: %+v\n", node)
+				for in := node.FirstChild; in != nil; in = in.NextSibling {
+					// fmt.Printf("child data:\n%+v\n", in)
+					// fmt.Println(in.Data)
+					if strings.HasPrefix(in.Data, "\n禁漫车：") {
+						meta.JMID = strings.TrimPrefix(in.Data, "\n禁漫车：")
+					}
+					if strings.HasPrefix(in.Data, "\n叙述：") {
+						meta.Overview = strings.TrimPrefix(in.Data, "\n叙述：")
+					}
+					if strings.HasPrefix(in.Data, "\n页数：") {
+						pagecount := strings.TrimPrefix(in.Data, "\n页数：")
+						pagecount = strings.TrimRight(pagecount, "\n")
+
+						var err error
+						meta.PageCount, err = strconv.Atoi(pagecount)
+						if err != nil {
+							fmt.Println("Pagecount convert:", err)
+						}
+					}
+					// fmt.Printf("in node:\n%+v\n", in)
+					for ks := in.FirstChild; ks != nil; ks = ks.NextSibling {
+
+						if strings.HasPrefix(ks.Data, "上架日期 : ") {
+							content := strings.TrimPrefix(ks.Data, "上架日期 : ")
+							meta.JMUploadTime = formatTime(content)
+
+						}
+						if strings.HasPrefix(ks.Data, "更新日期 : ") {
+							content := strings.TrimPrefix(ks.Data, "更新日期 : ")
+							meta.JMUpdateTime = formatTime(content)
+						}
+
+						if ok, id := nodeHasAttr(ks, "id"); ok {
+							fmt.Println("id val:", id)
+							for as := ks.FirstChild; as != nil; as = as.NextSibling {
+								// fmt.Printf("as node\n%+v\n", as)
+								if as.Data != "" {
+									// fmt.Println("Album liked:", as.Data)
+									count := strings.ToUpper(as.Data)
+									if strings.HasSuffix(count, "K") {
+										count = count[:len(count)-1] + "000"
+									}
+									meta.JMLiked, _ = strconv.Atoi(count)
+								}
+
+							}
+						}
+
+						for as := ks.FirstChild; as != nil; as = as.NextSibling {
+							if as.FirstChild != nil {
+								// fmt.Println("Album Viewd:", as.FirstChild.Data)
+								count := strings.ToUpper(as.FirstChild.Data)
+								if strings.HasSuffix(count, "K") {
+									count = count[:len(count)-1] + "000"
+								}
+								meta.JMViewCount, _ = strconv.Atoi(count)
+							}
+						}
+
+					}
+
+				}
 			}
 		} else if nodeContainClass(node, "tag-block") {
 			for in := node.FirstChild; in != nil; in = in.NextSibling {
-				fmt.Printf("tag-block node: %+v\n", node)
+				if ok, dataType := nodeHasAttr(in, "data-type"); ok {
+					var tags []tagInfo
+					switch dataType {
+					case "works":
+						// 作品
+						fmt.Println("作品")
+						tags = tagInfoInnerGet(in)
+					case "actor":
+						// 登场人物
+						fmt.Println("登场人物")
+						tags = tagInfoInnerGet(in)
+						for _, v := range tags {
+							link, _ := url.JoinPath(OrangeAppCCURLBase, v.Link)
+							meta.Actor = append(meta.Actor, dao.ComicActor{
+								Name:       v.Name,
+								SearchName: v.Name,
+								Link:       link,
+							})
+						}
+
+					case "tags":
+						// 标签
+						fmt.Println("标签", dataType)
+						tags = tagInfoInnerGet(in)
+						for _, v := range tags {
+							link, _ := url.JoinPath(OrangeAppCCURLBase, v.Link)
+							meta.Tag = append(meta.Tag, dao.ComicTag{
+								Name:       v.Name,
+								SearchName: v.Name,
+								Link:       link,
+							})
+						}
+					case "author":
+						// 作者
+						fmt.Println("作者", dataType)
+						tags = tagInfoInnerGet(in)
+						for _, v := range tags {
+							link, _ := url.JoinPath(OrangeAppCCURLBase, v.Link)
+							meta.Artist = append(meta.Artist, dao.ComicAuthor{
+								Name:       v.Name,
+								SearchName: v.Name,
+								Link:       link,
+							})
+						}
+					}
+
+				}
 			}
 		}
 
@@ -156,11 +400,12 @@ type PosterInfo struct {
 	PosterUrl string
 }
 
-func comicPosterFind(doc *goquery.Document) (info PosterInfo) {
-	panel := doc.Find(".col-md-12")
-	fmt.Println("panel nodes:", len(panel.Nodes))
+func comicPosterFind(panel *goquery.Selection) (info PosterInfo) {
 
 	albumCover := panel.Find(".col-lg-5")
+	if len(albumCover.Nodes) == 0 {
+		return PosterInfo{}
+	}
 	fmt.Println("albumCover nodes:", len(albumCover.Nodes))
 	for _, v := range albumCover.Nodes {
 		fmt.Printf("col-lg-5 nodes: %+v\n", v)
@@ -328,56 +573,41 @@ func chromeDpGetHtml(requestURL string) (html string, err error) {
 }
 
 func OrangeAppDownload(requestURL string, savePath string, db *gorm.DB) error {
-	s, err := chromeDpGetHtml(requestURL)
-	if err != nil {
-		return fmt.Errorf("Get html failed:%v\n", err)
-	}
-	fmt.Println(s)
+	// s, err := collyGetHtml(requestURL)
+	// if err != nil {
+	// 	return fmt.Errorf("Get html failed:%v\n", err)
+	// }
+	// fmt.Println(s)
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(s))
+	err, body := webbody.WebGet("GET", requestURL)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
 
-	short := comicShortFind(doc)
-	fmt.Printf("shortInfo: %+v\n", short)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
 
-	poster := comicPosterFind(doc)
-	fmt.Printf("posterInfo: %+v\n", poster)
+	meta, err := OrangeAppCrach(doc)
+	if err != nil {
+		fmt.Println(doc.Text())
+		return err
+	}
+	meta.OriginURL = requestURL
 
-	// imageURL := GelbooruImageUrlFind(doc)
-	// imageURL = GelbooruImageUrlOrigin(imageURL)
-	// // fmt.Println("ImageURL:", imageURL)
-	// if imageURL == "" {
-	// 	return errors.New("Imageurl not found.")
-	// }
-	//
-	// err, s, i := webbody.WriteFile("GET", imageURL, savePath)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return err
-	// }
-	// // fmt.Println("s:", s)
-	// // fmt.Println("bytes:", i)
-	//
-	// this := dao.Picture{
-	// 	OriginURL:  requestURL,
-	// 	Name:       "",
-	// 	SamplePath: "",
-	// 	ImageURL:   imageURL,
-	// 	FilePath:   s,
-	// 	FileName:   filepath.Base(s),
-	// 	Size:       uint64(i),
-	// 	Artist:     Taginfo2DBArtist(tag.Artist),
-	// 	Tags:       Taginfo2DBTag(tag.General),
-	// 	Character:  Taginfo2DBCharacter(tag.Character),
-	// 	Metadata:   Taginfo2DBMetaData(tag.MetaData),
-	// 	CopyRight:  Taginfo2DBCopyRight(tag.CopyRight),
-	// }
-	//
-	// // fmt.Printf("%+v\n", this)
-	// db.Save(&this)
+	coverDir := filepath.Join(savePath, "cover")
+	helpers.EnsurePath(coverDir)
+	err, meta.PosterFilePath, _ = webbody.WriteFile("GET", meta.PosterURL, coverDir)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	// fmt.Printf("%+v\n", meta)
+	db.Save(&meta)
 
 	return nil
 }

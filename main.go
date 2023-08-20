@@ -18,10 +18,12 @@ type Config struct {
 	ProxyURL    string `yaml:"proxyurl"`
 	DownloadDir string `yaml:"downloaddir"`
 	DBDir       string `yaml:"databasedir"`
+	Comicdir    string `yaml:"comicdir"`
 }
 
 func main() {
 	configFile, err := ioutil.ReadFile("config.yaml")
+	// configFile, err := ioutil.ReadFile("test/config.yaml")
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +43,7 @@ func main() {
 
 	helpers.EnsurePath(config.DownloadDir)
 
-	manager := taskmanager.NewTaskManager(dao.Object, config.DownloadDir)
+	manager := taskmanager.NewTaskManager(dao.Object, config.DownloadDir, config.Comicdir)
 	// manager.AddTask("https://yande.re/post/show/1094503")
 	// manager.AddTask("https://gelbooru.com/index.php?page=post&s=view&id=8619847&tags=thighband_pantyhose")
 	clipboardListening(manager)

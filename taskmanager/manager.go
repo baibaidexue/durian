@@ -14,6 +14,7 @@ import (
 type TaskManager struct {
 	Db        *gorm.DB
 	SavePath  string
+	ComicPath string
 	TaskChan  chan string
 	picChan   chan string
 	comicChan chan string
@@ -29,7 +30,7 @@ func comicRun(tm *TaskManager) {
 	for {
 		select {
 		case taskUrl := <-tm.comicChan:
-			err := comic.Download(taskUrl, tm.SavePath)
+			err := comic.Download(taskUrl, tm.ComicPath)
 			tm.endEvent(taskUrl, err)
 		}
 	}
@@ -59,7 +60,7 @@ func (tm *TaskManager) run() {
 		case <-tick.C:
 			// load 5 failed task
 			var airTaskList []dao.AirTask
-			tm.Db.Where("id > ?", lastAirTaskId).Order("id ASC").Limit(5).Scan(&airTaskList)
+			tm.Db.Model(&dao.AirTask{}).Where("id > ?", lastAirTaskId).Order("id ASC").Limit(5).Scan(&airTaskList)
 			for _, v := range airTaskList {
 				if v.ID > lastAirTaskId {
 					lastAirTaskId = v.ID
@@ -104,10 +105,11 @@ func taskUrlValidate(taskUrl string) (lech string) {
 	return
 }
 
-func NewTaskManager(db *gorm.DB, savePath string) *TaskManager {
+func NewTaskManager(db *gorm.DB, savePath, ComicDir string) *TaskManager {
 	tm := &TaskManager{
 		Db:        db,
 		SavePath:  savePath,
+		ComicPath: ComicDir,
 		TaskChan:  make(chan string, 60),
 		picChan:   make(chan string, 5),
 		comicChan: make(chan string, 5),
