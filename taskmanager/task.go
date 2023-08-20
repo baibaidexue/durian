@@ -37,10 +37,10 @@ func (t *TaskManager) endEvent(taskUrl string, err error) {
 	}
 
 	if err != nil {
-		t.Db.Where(map[string]interface{}{"origin_url": taskUrl}).Update(&dao.AirTask{
+		t.Db.Model(&dao.AirTask{}).Where(map[string]interface{}{"origin_url": taskUrl}).Update(&dao.AirTask{
 			ErrorInfo: err.Error(),
 		})
 	} else {
-		t.Db.Unscoped().Where(map[string]interface{}{"origin_url": taskUrl}).Delete(&dao.AirTask{})
+		t.Db.Model(&dao.AirTask{}).Unscoped().Where(map[string]interface{}{"origin_url": taskUrl}).Delete(&dao.AirTask{})
 	}
 }
