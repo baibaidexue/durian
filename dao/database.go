@@ -21,7 +21,7 @@ type DatabaseOptions struct {
 func NewDb(options DatabaseOptions, dbPath string) *gorm.DB {
 	var err error
 	dbDefaultPath := path.Join(dbPath, "metadata.db")
-	Object, err = sqlite.NewSQLiteDatabase(dbDefaultPath, false)
+	Object, err = sqlite.NewSQLiteDatabase(dbDefaultPath, true)
 	if err != nil {
 		panic(fmt.Sprintf("failed to connect database: %s\n", err))
 	}
@@ -36,7 +36,7 @@ func NewDb(options DatabaseOptions, dbPath string) *gorm.DB {
 
 var allModels = []interface{}{
 	&Picture{}, &PictureArtist{}, &PictureCharacter{}, &PictureTag{}, &PictureMetaData{},
-	&PictureCopyRight{},
+	&PictureCopyRight{}, &AirTask{},
 }
 
 func migrateSchema(db *gorm.DB) error {
