@@ -37,7 +37,6 @@ func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error
 	}
 
 	tag := GelbooruTagFind(doc)
-	// fmt.Printf("%+v\n", tag)
 
 	imageURL := GelbooruImageUrlFind(doc)
 	imageURL = GelbooruImageUrlOrigin(imageURL)
@@ -51,8 +50,6 @@ func GelbooruDownloadPics(requestURL string, savePath string, db *gorm.DB) error
 		fmt.Println(err)
 		return err
 	}
-	// fmt.Println("s:", s)
-	// fmt.Println("bytes:", i)
 
 	this := dao.Picture{
 		OriginURL:  requestURL,

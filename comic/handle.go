@@ -22,7 +22,7 @@ func IsCorrectUrl(requestUrl string) bool {
 	return ret
 }
 
-func Download(requestUrl string, savePath string) {
+func Download(requestUrl string, savePath string) error {
 	fmt.Println("Download comic meta:", requestUrl)
 	spi := strings.Split(requestUrl, "://")
 	requestBody := spi[1]
@@ -43,10 +43,5 @@ func Download(requestUrl string, savePath string) {
 		err = errors.New("no branch caughted:" + rq[0])
 	}
 
-	if err != nil {
-		fmt.Println("Encounter error at downloading pics:", err)
-	} else {
-		fmt.Println("finshied ", requestUrl)
-	}
-
+	return err
 }

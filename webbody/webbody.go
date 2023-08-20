@@ -72,7 +72,7 @@ func WriteFile(method, targetURL, savePath string) (error, string, int64) {
 	}
 	dira := filepath.Join(savePath, fileName)
 	if helpers.FileExists(dira) {
-		return fmt.Errorf("File already exists."), "", 0
+		return os.ErrExist, "", 0
 	}
 	// 设置代理地址
 	proxyUrl, err := url.Parse(ProxyUrl)
